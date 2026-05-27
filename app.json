@@ -12,6 +12,7 @@
   },
   "source": "https://github.com/DominicVonk/homey-device-mirror",
   "brandColor": "#1773af",
+  "hasSettings": true,
   "description": {
     "en": "Mirror devices from one Homey to another over a local HTTP bridge."
   },
