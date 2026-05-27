@@ -1,6 +1,6 @@
 {
   "id": "com.dominicvonk.homeydevicemirror",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "sdk": 3,
   "compatibility": ">=5.0.0",
   "name": {
@@ -127,7 +127,6 @@
       "pair": [
         {
           "id": "connect",
-          "template": "custom",
           "navigation": {
             "next": "list_devices"
           }
@@ -147,7 +146,6 @@
       "repair": [
         {
           "id": "connect",
-          "template": "custom",
           "navigation": {
             "next": "list_devices"
           }

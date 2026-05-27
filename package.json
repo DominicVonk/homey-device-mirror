@@ -1,6 +1,6 @@
 {
   "name": "homey-device-mirror",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Mirror devices from one Homey to another over a local HTTP bridge.",
   "main": "app.js",
   "scripts": {
