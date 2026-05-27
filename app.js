@@ -165,8 +165,21 @@ function parseFlowPayload(value) {
   }
 }
 
-function cloneJson(value) {
-  return JSON.parse(JSON.stringify(value))
+function localIpFromHomeyLocalUrl(value) {
+  try {
+    const hostname = new URL(value).hostname
+    const homeyLocalIp = hostname.match(
+      /^(\d{1,3})-(\d{1,3})-(\d{1,3})-(\d{1,3})\.homey\.homeylocal\.com$/i
+    )
+
+    if (homeyLocalIp) {
+      return homeyLocalIp.slice(1).join(".")
+    }
+
+    return hostname
+  } catch {
+    return ""
+  }
 }
 
 function normalizeTokens(tokens) {
@@ -405,12 +418,16 @@ module.exports = class HomeyDeviceMirrorApp extends Homey.App {
   async getServerInfo() {
     const port = Number(this.homey.settings.get(serverPortSetting)) || defaultPort
     const enabled = this.homey.settings.get(serverEnabledSetting) !== false
+    const localUrl = await this.homey.api.getLocalUrl().catch(() => "")
+    const localIp = localIpFromHomeyLocalUrl(localUrl)
 
     return {
       enabled,
+      localIp,
+      localUrl,
       port,
       token: this.homey.settings.get(serverTokenSetting),
-      url: `http://<source-homey-ip>:${port}`,
+      url: localIp ? `http://${localIp}:${port}` : `http://<source-homey-ip>:${port}`,
     }
   }
 

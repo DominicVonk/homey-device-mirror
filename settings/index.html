@@ -42,6 +42,9 @@
     <label data-i18n="settings.url"></label>
     <code id="url"></code>
 
+    <label data-i18n="settings.local_ip"></label>
+    <code id="localIp"></code>
+
     <label data-i18n="settings.token"></label>
     <code id="token"></code>
 
@@ -53,6 +56,7 @@
         const enabled = document.getElementById("enabled")
         const port = document.getElementById("port")
         const url = document.getElementById("url")
+        const localIp = document.getElementById("localIp")
         const token = document.getElementById("token")
 
         function refresh() {
@@ -65,6 +69,7 @@
             enabled.checked = Boolean(info.enabled)
             port.value = info.port
             url.textContent = info.url
+            localIp.textContent = info.localIp || "-"
             token.textContent = info.token
           })
         }

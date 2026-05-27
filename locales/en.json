@@ -1,7 +1,8 @@
 {
   "settings": {
     "enabled": "Enable source HTTP server",
-    "intro": "Use this Homey as a source by copying the URL and token to a target Homey during pairing. Replace <source-homey-ip> with this Homey's LAN IP address.",
+    "intro": "Use this Homey as a source by copying the detected URL and token to a target Homey during pairing.",
+    "local_ip": "Detected local IP",
     "port": "HTTP port",
     "rotate": "Rotate token",
     "save": "Save",
