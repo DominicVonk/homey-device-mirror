@@ -1,0 +1,68 @@
+<!doctype html>
+<html>
+  <head>
+    <style>
+      body {
+        font-family: sans-serif;
+        margin: 0;
+        padding: 16px;
+      }
+
+      label {
+        display: block;
+        font-weight: 600;
+        margin-top: 16px;
+      }
+
+      input {
+        box-sizing: border-box;
+        margin-top: 6px;
+        width: 100%;
+      }
+
+      button {
+        margin-top: 20px;
+      }
+
+      .error {
+        color: #b00020;
+        margin-top: 12px;
+      }
+    </style>
+  </head>
+  <body>
+    <label for="baseUrl">Source Homey URL</label>
+    <input id="baseUrl" placeholder="http://192.168.1.10:48555" />
+
+    <label for="token">Source token</label>
+    <input id="token" type="password" />
+
+    <button id="connect">Connect</button>
+    <div id="error" class="error"></div>
+
+    <script type="text/javascript">
+      Homey.setTitle("Connect source Homey")
+
+      document.getElementById("connect").addEventListener("click", () => {
+        const error = document.getElementById("error")
+        error.textContent = ""
+
+        Homey.emit(
+          "set_connection",
+          {
+            baseUrl: document.getElementById("baseUrl").value,
+            token: document.getElementById("token").value,
+          },
+          (err) => {
+            if (err) {
+              error.textContent = err.message || String(err)
+              return
+            }
+
+            Homey.nextView()
+          }
+        )
+      })
+    </script>
+  </body>
+</html>

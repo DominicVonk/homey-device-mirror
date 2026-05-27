@@ -1,0 +1,24 @@
+[
+  {
+    "id": "sourceBaseUrl",
+    "type": "text",
+    "label": {
+      "en": "Source Homey URL"
+    },
+    "value": "",
+    "hint": {
+      "en": "Read-only copy of the source Homey URL used by this mirror."
+    }
+  },
+  {
+    "id": "sourceDeviceId",
+    "type": "text",
+    "label": {
+      "en": "Source device ID"
+    },
+    "value": "",
+    "hint": {
+      "en": "Read-only copy of the source device ID used by this mirror."
+    }
+  }
+]

@@ -1,0 +1,125 @@
+{
+  "id": "com.dominicvonk.homeydevicemirror",
+  "version": "0.1.0",
+  "sdk": 3,
+  "compatibility": ">=5.0.0",
+  "name": {
+    "en": "Homey Device Mirror"
+  },
+  "author": {
+    "name": "Dominic Vonk",
+    "email": "dominic@vonk.dev"
+  },
+  "source": "https://github.com/DominicVonk/homey-device-mirror",
+  "brandColor": "#1773af",
+  "description": {
+    "en": "Mirror devices from one Homey to another over a local HTTP bridge."
+  },
+  "category": [
+    "tools"
+  ],
+  "permissions": [
+    "homey:manager:api"
+  ],
+  "api": {
+    "getServerInfo": {
+      "method": "get",
+      "path": "/"
+    },
+    "rotateServerToken": {
+      "method": "post",
+      "path": "/rotate-token"
+    }
+  },
+  "flow": {
+    "triggers": [
+      {
+        "id": "mirror_device_event",
+        "title": {
+          "en": "A mirrored source event was received"
+        },
+        "args": [
+          {
+            "name": "device",
+            "type": "device",
+            "filter": "driver_id=mirror_device"
+          }
+        ],
+        "tokens": [
+          {
+            "name": "event",
+            "type": "string",
+            "title": {
+              "en": "Event"
+            }
+          },
+          {
+            "name": "payload",
+            "type": "string",
+            "title": {
+              "en": "Payload"
+            }
+          }
+        ]
+      }
+    ]
+  },
+  "images": {
+    "small": "/assets/images/small.png",
+    "large": "/assets/images/large.png"
+  },
+  "drivers": [
+    {
+      "id": "mirror_device",
+      "name": {
+        "en": "Mirrored Device"
+      },
+      "class": "other",
+      "capabilities": [],
+      "images": {
+        "small": "/drivers/mirror_device/assets/images/small.png",
+        "large": "/drivers/mirror_device/assets/images/large.png"
+      },
+      "pair": [
+        {
+          "id": "connect",
+          "template": "custom",
+          "navigation": {
+            "next": "list_devices"
+          }
+        },
+        {
+          "id": "list_devices",
+          "template": "list_devices",
+          "navigation": {
+            "next": "add_devices"
+          }
+        },
+        {
+          "id": "add_devices",
+          "template": "add_devices"
+        }
+  ],
+      "repair": [
+        {
+          "id": "connect",
+          "template": "custom",
+          "navigation": {
+            "next": "list_devices"
+          }
+        },
+        {
+          "id": "list_devices",
+          "template": "list_devices",
+          "navigation": {
+            "next": "add_devices"
+          }
+        },
+        {
+          "id": "add_devices",
+          "template": "add_devices"
+        }
+      ]
+    }
+  ]
+}

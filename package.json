@@ -1,0 +1,20 @@
+{
+  "name": "homey-device-mirror",
+  "version": "0.1.0",
+  "description": "Mirror devices from one Homey to another over a local HTTP bridge.",
+  "main": "app.js",
+  "scripts": {
+    "validate": "homey app validate",
+    "lint": "node --check app.js && node --check api.js && node --check lib/http-json.js && node --check drivers/mirror_device/driver.js && node --check drivers/mirror_device/device.js"
+  },
+  "dependencies": {
+    "homey-api": "^3.19.0"
+  },
+  "devDependencies": {
+    "homey": "^4.2.3"
+  },
+  "engines": {
+    "node": ">=16"
+  },
+  "private": true
+}

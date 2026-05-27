@@ -1,0 +1,95 @@
+<!doctype html>
+<html>
+  <head>
+    <script type="text/javascript" src="/homey.js" data-origin="settings"></script>
+    <style>
+      body {
+        font-family: sans-serif;
+        padding: 16px;
+      }
+
+      label {
+        display: block;
+        font-weight: 600;
+        margin-top: 16px;
+      }
+
+      input {
+        box-sizing: border-box;
+        margin-top: 6px;
+        width: 100%;
+      }
+
+      button {
+        margin-top: 16px;
+      }
+
+      code {
+        word-break: break-all;
+      }
+    </style>
+  </head>
+  <body>
+    <h1 data-i18n="settings.title"></h1>
+    <p data-i18n="settings.intro"></p>
+
+    <label for="enabled" data-i18n="settings.enabled"></label>
+    <input id="enabled" type="checkbox" />
+
+    <label for="port" data-i18n="settings.port"></label>
+    <input id="port" type="number" min="1024" max="65535" />
+
+    <label data-i18n="settings.url"></label>
+    <code id="url"></code>
+
+    <label data-i18n="settings.token"></label>
+    <code id="token"></code>
+
+    <button id="save" data-i18n="settings.save"></button>
+    <button id="rotate" data-i18n="settings.rotate"></button>
+
+    <script type="text/javascript">
+      function onHomeyReady(Homey) {
+        const enabled = document.getElementById("enabled")
+        const port = document.getElementById("port")
+        const url = document.getElementById("url")
+        const token = document.getElementById("token")
+
+        function refresh() {
+          Homey.api("GET", "/", null, (error, info) => {
+            if (error) {
+              Homey.alert(error)
+              return
+            }
+
+            enabled.checked = Boolean(info.enabled)
+            port.value = info.port
+            url.textContent = info.url
+            token.textContent = info.token
+          })
+        }
+
+        document.getElementById("save").addEventListener("click", () => {
+          Homey.set("serverEnabled", enabled.checked)
+          Homey.set("serverPort", Number(port.value) || 48555)
+          Homey.alert(Homey.__("settings.saved"))
+          refresh()
+        })
+
+        document.getElementById("rotate").addEventListener("click", () => {
+          Homey.api("POST", "/rotate-token", null, (error) => {
+            if (error) {
+              Homey.alert(error)
+              return
+            }
+
+            refresh()
+          })
+        })
+
+        refresh()
+        Homey.ready()
+      }
+    </script>
+  </body>
+</html>
