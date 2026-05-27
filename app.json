@@ -1,6 +1,6 @@
 {
   "id": "com.dominicvonk.homeydevicemirror",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "sdk": 3,
   "compatibility": ">=5.0.0",
   "name": {
@@ -82,6 +82,47 @@
             "type": "device",
             "title": {
               "en": "Source device"
+            }
+          },
+          {
+            "name": "event",
+            "type": "text",
+            "title": {
+              "en": "Event"
+            },
+            "placeholder": {
+              "en": "motion.started"
+            }
+          },
+          {
+            "name": "payload",
+            "type": "text",
+            "title": {
+              "en": "Payload"
+            },
+            "placeholder": {
+              "en": "Optional text or JSON"
+            }
+          }
+        ]
+      },
+      {
+        "id": "publish_mirror_event_by_id",
+        "title": {
+          "en": "Publish a mirror event by device ID"
+        },
+        "titleFormatted": {
+          "en": "Publish [[event]] for source device ID [[source_device_id]] with [[payload]]"
+        },
+        "hint": {
+          "en": "For generated mirror flows. Forwards an arbitrary event from this source Homey to target Homeys mirroring the selected device ID."
+        },
+        "args": [
+          {
+            "name": "source_device_id",
+            "type": "text",
+            "title": {
+              "en": "Source device ID"
             }
           },
           {

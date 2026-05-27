@@ -7,7 +7,8 @@ const { HomeyAPI } = require("homey-api")
 
 const defaultPort = 48555
 const appOwnerUri = "homey:app:com.dominicvonk.homeydevicemirror"
-const publishActionCardId = `${appOwnerUri}:publish_mirror_event`
+const publishActionByDeviceIdCard = "publish_mirror_event_by_id"
+const publishActionByDeviceIdCardId = `${appOwnerUri}:${publishActionByDeviceIdCard}`
 const serverTokenSetting = "serverToken"
 const serverPortSetting = "serverPort"
 const serverEnabledSetting = "serverEnabled"
@@ -248,13 +249,6 @@ function flowEventPayload(card, cardInstanceId, args) {
   })
 }
 
-function flowDeviceArg(device) {
-  return {
-    id: device.id,
-    name: device.name,
-  }
-}
-
 function normalizeFlowArgValue(value) {
   if (!value || typeof value !== "object") {
     return value
@@ -371,10 +365,9 @@ module.exports = class HomeyDeviceMirrorApp extends Homey.App {
   }
 
   registerFlowCards() {
-    this.homey.flow
-      .getActionCard("publish_mirror_event")
-      .registerRunListener(async (args) => {
-        const sourceDeviceId = extractFlowDeviceId(args.source_device)
+    const registerPublishAction = (cardId, getSourceDeviceId) => {
+      this.homey.flow.getActionCard(cardId).registerRunListener(async (args) => {
+        const sourceDeviceId = String(getSourceDeviceId(args) || "").trim()
         const event = String(args.event || "").trim()
 
         if (!sourceDeviceId) {
@@ -391,6 +384,12 @@ module.exports = class HomeyDeviceMirrorApp extends Homey.App {
           sourceDeviceId,
         })
       })
+    }
+
+    registerPublishAction("publish_mirror_event", (args) =>
+      extractFlowDeviceId(args.source_device)
+    )
+    registerPublishAction(publishActionByDeviceIdCard, (args) => args.source_device_id)
   }
 
   async onUninit() {
@@ -699,12 +698,12 @@ module.exports = class HomeyDeviceMirrorApp extends Homey.App {
         }
         cards[actionId] = {
           ownerUri: appOwnerUri,
-          id: publishActionCardId,
+          id: publishActionByDeviceIdCardId,
           type: "action",
           x: 320,
           y,
           args: {
-            source_device: flowDeviceArg(device),
+            source_device_id: device.id,
             event,
             payload: flowEventPayload(triggerCard, triggerId, args),
           },
