@@ -15,6 +15,7 @@ module.exports = class MirrorDevice extends Homey.Device {
     this.sourceUpdateInProgress = false
 
     await this.syncFromSource()
+    await this.ensureSourceAdvancedFlow()
     this.registerCapabilityWriteListeners()
     this.startPolling()
     this.startEventStream()
@@ -120,6 +121,35 @@ module.exports = class MirrorDevice extends Homey.Device {
     })
 
     await this.applySourceDevice(result.device)
+  }
+
+  async ensureSourceAdvancedFlow() {
+    try {
+      const result = await requestJson({
+        baseUrl: this.store.sourceBaseUrl,
+        method: "POST",
+        path: "/flows/advanced-link-all",
+        token: this.store.sourceToken,
+        body: {
+          deviceId: this.store.sourceDeviceId,
+        },
+        timeout: 30000,
+      })
+
+      this.log(
+        `Source Advanced Flow ${result.created ? "created" : "updated"} with ${
+          result.linkedTriggers
+        } trigger state(s).`
+      )
+
+      if (result.skipped?.length) {
+        this.log(
+          `Skipped ${result.skipped.length} trigger(s) without enumerable states.`
+        )
+      }
+    } catch (error) {
+      this.error("Could not create source Advanced Flow", error)
+    }
   }
 
   async applySourceDevice(device) {

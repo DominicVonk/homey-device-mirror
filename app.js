@@ -7,6 +7,7 @@ const { HomeyAPI } = require("homey-api")
 
 const defaultPort = 48555
 const appOwnerUri = "homey:app:com.dominicvonk.homeydevicemirror"
+const publishActionCardId = `${appOwnerUri}:publish_mirror_event`
 const serverTokenSetting = "serverToken"
 const serverPortSetting = "serverPort"
 const serverEnabledSetting = "serverEnabled"
@@ -164,6 +165,177 @@ function parseFlowPayload(value) {
   }
 }
 
+function cloneJson(value) {
+  return JSON.parse(JSON.stringify(value))
+}
+
+function normalizeTokens(tokens) {
+  if (!tokens) {
+    return []
+  }
+
+  if (Array.isArray(tokens)) {
+    return tokens
+  }
+
+  return Object.entries(tokens).map(([id, token]) => ({
+    id,
+    ...token,
+  }))
+}
+
+function requiredArgsForFlowCard(card) {
+  return (card.args || []).filter((arg) => arg.required !== false)
+}
+
+function flowEventName(card) {
+  return String(card.id || "")
+    .split(":")
+    .filter(Boolean)
+    .at(-1)
+}
+
+function flowEventNameForArgs(card, args) {
+  const baseName = flowEventName(card)
+  const suffix = Object.values(args)
+    .map((value) => {
+      if (value && typeof value === "object") {
+        return value.id || value.name || value.value || ""
+      }
+
+      return value
+    })
+    .filter((value) => value !== "")
+    .map((value) =>
+      String(value)
+        .trim()
+        .replace(/[^A-Za-z0-9._-]+/g, "_")
+        .replace(/^_+|_+$/g, "")
+    )
+    .filter(Boolean)
+    .join(".")
+
+  return suffix ? `${baseName}.${suffix}` : baseName
+}
+
+function flowEventPayload(card, cardInstanceId, args) {
+  const tokens = {}
+
+  for (const token of normalizeTokens(card.tokens)) {
+    if (token?.id) {
+      tokens[token.id] = `[[trigger::${cardInstanceId}::${token.id}]]`
+    }
+  }
+
+  return JSON.stringify({
+    args,
+    sourceTriggerId: card.id,
+    sourceTriggerTitle: card.title || flowEventName(card),
+    tokens,
+  })
+}
+
+function flowDeviceArg(device) {
+  return {
+    id: device.id,
+    name: device.name,
+  }
+}
+
+function normalizeFlowArgValue(value) {
+  if (!value || typeof value !== "object") {
+    return value
+  }
+
+  if (Object.hasOwn(value, "id")) {
+    return value.id
+  }
+
+  if (Object.hasOwn(value, "value")) {
+    return value.value
+  }
+
+  return value
+}
+
+function valuesForFlowArg(arg) {
+  if (Array.isArray(arg.values) && arg.values.length > 0) {
+    return arg.values.map(normalizeFlowArgValue)
+  }
+
+  if (arg.type === "boolean" || arg.type === "checkbox") {
+    return [true, false]
+  }
+
+  return []
+}
+
+function expandFlowCardArgStates(card) {
+  const requiredArgs = requiredArgsForFlowCard(card)
+
+  if (requiredArgs.length === 0) {
+    return {
+      states: [{}],
+      skipped: null,
+    }
+  }
+
+  const valueSets = []
+
+  for (const arg of requiredArgs) {
+    const values = valuesForFlowArg(arg)
+
+    if (values.length === 0) {
+      return {
+        states: [],
+        skipped: {
+          id: card.id,
+          title: card.title || flowEventName(card),
+          reason: `argument ${arg.name || "unknown"} has no enumerable values`,
+        },
+      }
+    }
+
+    valueSets.push({
+      name: arg.name,
+      values,
+    })
+  }
+
+  const states = [{}]
+
+  for (const valueSet of valueSets) {
+    const nextStates = []
+
+    for (const state of states) {
+      for (const value of valueSet.values) {
+        nextStates.push({
+          ...state,
+          [valueSet.name]: value,
+        })
+      }
+    }
+
+    if (nextStates.length > 128) {
+      return {
+        states: [],
+        skipped: {
+          id: card.id,
+          title: card.title || flowEventName(card),
+          reason: "too many argument combinations",
+        },
+      }
+    }
+
+    states.splice(0, states.length, ...nextStates)
+  }
+
+  return {
+    states,
+    skipped: null,
+  }
+}
+
 module.exports = class HomeyDeviceMirrorApp extends Homey.App {
   async onInit() {
     this.homeyApi = await HomeyAPI.createAppAPI({ homey: this.homey })
@@ -318,6 +490,13 @@ module.exports = class HomeyDeviceMirrorApp extends Homey.App {
         return
       }
 
+      if (request.method === "POST" && url.pathname === "/flows/advanced-link-all") {
+        const body = await parseJsonBody(request)
+        const result = await this.createOrUpdateForwardAllAdvancedFlow(body.deviceId)
+        jsonResponse(response, 200, result)
+        return
+      }
+
       const matchCapability = url.pathname.match(
         /^\/devices\/([^/]+)\/capabilities\/([^/]+)$/
       )
@@ -456,6 +635,112 @@ module.exports = class HomeyDeviceMirrorApp extends Homey.App {
     this.log(
       `Published mirror event ${event} for ${sourceDeviceId} to ${delivered} client(s)`
     )
+  }
+
+  async createOrUpdateForwardAllAdvancedFlow(deviceId) {
+    const devices = await this.homeyApi.devices.getDevices()
+    const device = devices[deviceId]
+
+    if (!device) {
+      throw new Error(`Source device not found: ${deviceId}`)
+    }
+
+    const triggerCards = Object.values(
+      await this.homeyApi.flow.getFlowCardTriggers()
+    )
+      .filter((card) => card.ownerUri === `homey:device:${deviceId}`)
+      .sort((left, right) =>
+        String(left.title || left.id).localeCompare(String(right.title || right.id))
+      )
+
+    const skipped = []
+    const cards = {}
+    let row = 0
+
+    for (const triggerCard of triggerCards) {
+      const expanded = expandFlowCardArgStates(triggerCard)
+
+      if (expanded.skipped) {
+        skipped.push(expanded.skipped)
+        continue
+      }
+
+      for (const args of expanded.states) {
+        const triggerId = crypto.randomUUID()
+        const actionId = crypto.randomUUID()
+        const y = row * 120
+        const event = flowEventNameForArgs(triggerCard, args)
+
+        cards[triggerId] = {
+          ownerUri: triggerCard.ownerUri,
+          id: triggerCard.id,
+          type: "trigger",
+          x: 0,
+          y,
+          args,
+          outputSuccess: [actionId],
+        }
+        cards[actionId] = {
+          ownerUri: appOwnerUri,
+          id: publishActionCardId,
+          type: "action",
+          x: 320,
+          y,
+          args: {
+            source_device: flowDeviceArg(device),
+            event,
+            payload: flowEventPayload(triggerCard, triggerId, args),
+          },
+        }
+        row += 1
+      }
+    }
+
+    if (Object.keys(cards).length === 0) {
+      return {
+        created: false,
+        updated: false,
+        flowId: null,
+        linkedTriggers: 0,
+        skipped,
+      }
+    }
+
+    const name = `[Mirror] Forward all: ${device.name}`
+    const advancedflow = {
+      name,
+      enabled: true,
+      triggerable: false,
+      cards,
+    }
+    const existing = Object.values(await this.homeyApi.flow.getAdvancedFlows()).find(
+      (flow) => flow.name === name
+    )
+
+    if (existing) {
+      const updated = await this.homeyApi.flow.updateAdvancedFlow({
+        id: existing.id,
+        advancedflow,
+      })
+
+      return {
+        created: false,
+        updated: true,
+        flowId: updated.id,
+        linkedTriggers: row,
+        skipped,
+      }
+    }
+
+    const created = await this.homeyApi.flow.createAdvancedFlow({ advancedflow })
+
+    return {
+      created: true,
+      updated: false,
+      flowId: created.id,
+      linkedTriggers: row,
+      skipped,
+    }
   }
 
   async attachCapabilityEventListeners(client) {
