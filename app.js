@@ -130,11 +130,46 @@ function serializeDevice(device) {
   }
 }
 
+function extractFlowDeviceId(device) {
+  if (!device) {
+    return ""
+  }
+
+  if (typeof device.id === "string") {
+    return device.id
+  }
+
+  if (typeof device.getData === "function") {
+    const data = device.getData()
+
+    if (typeof data?.id === "string") {
+      return data.id
+    }
+  }
+
+  return ""
+}
+
+function parseFlowPayload(value) {
+  const text = String(value || "").trim()
+
+  if (!text) {
+    return null
+  }
+
+  try {
+    return JSON.parse(text)
+  } catch {
+    return text
+  }
+}
+
 module.exports = class HomeyDeviceMirrorApp extends Homey.App {
   async onInit() {
     this.homeyApi = await HomeyAPI.createAppAPI({ homey: this.homey })
     this.eventClients = new Set()
     await this.ensureServerSettings()
+    this.registerFlowCards()
 
     this.homey.settings.on("set", async (key) => {
       if (
@@ -148,6 +183,29 @@ module.exports = class HomeyDeviceMirrorApp extends Homey.App {
 
     await this.restartServer()
     this.log("Homey Device Mirror initialized")
+  }
+
+  registerFlowCards() {
+    this.homey.flow
+      .getActionCard("publish_mirror_event")
+      .registerRunListener(async (args) => {
+        const sourceDeviceId = extractFlowDeviceId(args.source_device)
+        const event = String(args.event || "").trim()
+
+        if (!sourceDeviceId) {
+          throw new Error("Choose a source device.")
+        }
+
+        if (!event) {
+          throw new Error("Enter an event name.")
+        }
+
+        this.publishMirrorEvent({
+          event,
+          payload: parseFlowPayload(args.payload),
+          sourceDeviceId,
+        })
+      })
   }
 
   async onUninit() {
@@ -378,6 +436,26 @@ module.exports = class HomeyDeviceMirrorApp extends Homey.App {
 
     client.response.write(`event: ${event}\n`)
     client.response.write(`data: ${JSON.stringify(data)}\n\n`)
+  }
+
+  publishMirrorEvent({ sourceDeviceId, event, payload }) {
+    let delivered = 0
+    const data = {
+      event,
+      payload,
+      sourceDeviceId,
+    }
+
+    for (const client of this.eventClients) {
+      if (client.deviceId === sourceDeviceId) {
+        this.sendSourceEvent(client, "flow.event", data)
+        delivered += 1
+      }
+    }
+
+    this.log(
+      `Published mirror event ${event} for ${sourceDeviceId} to ${delivered} client(s)`
+    )
   }
 
   async attachCapabilityEventListeners(client) {

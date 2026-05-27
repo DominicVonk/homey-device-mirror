@@ -62,6 +62,49 @@
           }
         ]
       }
+    ],
+    "actions": [
+      {
+        "id": "publish_mirror_event",
+        "title": {
+          "en": "Publish a mirror event"
+        },
+        "titleFormatted": {
+          "en": "Publish [[event]] for [[source_device]] with [[payload]]"
+        },
+        "hint": {
+          "en": "Forwards an arbitrary event from this source Homey to target Homeys mirroring the selected device."
+        },
+        "args": [
+          {
+            "name": "source_device",
+            "type": "device",
+            "title": {
+              "en": "Source device"
+            }
+          },
+          {
+            "name": "event",
+            "type": "text",
+            "title": {
+              "en": "Event"
+            },
+            "placeholder": {
+              "en": "motion.started"
+            }
+          },
+          {
+            "name": "payload",
+            "type": "text",
+            "title": {
+              "en": "Payload"
+            },
+            "placeholder": {
+              "en": "Optional text or JSON"
+            }
+          }
+        ]
+      }
     ]
   },
   "images": {

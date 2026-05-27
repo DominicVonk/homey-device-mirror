@@ -7,6 +7,7 @@ Install the same app on both Homeys:
 1. On the source Homey, open the app settings and copy the local server URL and token.
 2. On the target Homey, add a **Mirrored Device**, paste the source URL and token, then select the device to mirror.
 3. The mirrored device opens an HTTP event stream to the source Homey, keeps capabilities in sync, and forwards target-side capability changes back to the source.
+4. To forward driver-specific events that do not change device state, create a Flow on the source Homey and add the **Publish a mirror event** action. Select the real source device, name the event, and pass optional text or JSON payload.
 
 ## Scope
 
@@ -14,12 +15,13 @@ Install the same app on both Homeys:
 - Forwards target-side capability writes to the source Homey through the Homey Web API.
 - Streams source-side capability events to the target over a target-initiated HTTP Server-Sent Events request.
 - Emits a generic Homey Flow trigger on the target for every source event the bridge receives.
+- Adds a source-side Flow action card so any source Flow can explicitly publish device-scoped mirror events to targets.
 - Uses a shared bearer token for the local HTTP bridge.
 - Runs locally on Homey Pro / Homey Self-Hosted. Homey Cloud does not allow app Web APIs with the required full Homey API permission.
 
 Unknown custom capabilities from third-party apps are passed through with their capability options when Homey accepts them. If Homey rejects a custom capability that is not defined by this app, mirror that source device with system capabilities only or add the custom capability definition to the app.
 
-The source Homey streams Homey Web API device capability events and periodic full-device snapshots. Flow executions inside the original driver are not available through Homey's device API unless they also change device state.
+The source Homey streams Homey Web API device capability events and periodic full-device snapshots. Flow executions inside the original driver are not available through Homey's device API unless they also change device state, but source Flows can forward those moments through the **Publish a mirror event** action.
 
 ## Development
 

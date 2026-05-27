@@ -89,6 +89,12 @@ module.exports = class MirrorDevice extends Homey.Device {
 
   async handleSourceEvent(event, payload) {
     this.reconnectDelay = reconnectMinMs
+
+    if (event === "flow.event" && payload?.event) {
+      this.driver.triggerSourceEvent(this, payload.event, payload.payload)
+      return
+    }
+
     this.driver.triggerSourceEvent(this, event, payload)
 
     if (event === "device.snapshot" && payload?.device) {
