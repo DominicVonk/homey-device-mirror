@@ -2,6 +2,7 @@
 
 const crypto = require("node:crypto")
 const http = require("node:http")
+const os = require("node:os")
 const Homey = require("homey")
 const { HomeyAPI } = require("homey-api")
 
@@ -181,6 +182,24 @@ function localIpFromHomeyLocalUrl(value) {
   } catch {
     return ""
   }
+}
+
+function isLoopbackIp(value) {
+  return value === "127.0.0.1" || value === "localhost" || value === "::1"
+}
+
+function localIpFromNetworkInterfaces() {
+  const interfaces = os.networkInterfaces()
+
+  for (const entries of Object.values(interfaces)) {
+    for (const entry of entries || []) {
+      if (entry.family === "IPv4" && !entry.internal && !isLoopbackIp(entry.address)) {
+        return entry.address
+      }
+    }
+  }
+
+  return ""
 }
 
 function normalizeTokens(tokens) {
@@ -418,7 +437,11 @@ module.exports = class HomeyDeviceMirrorApp extends Homey.App {
     const port = Number(this.homey.settings.get(serverPortSetting)) || defaultPort
     const enabled = this.homey.settings.get(serverEnabledSetting) !== false
     const localUrl = await this.homey.api.getLocalUrl().catch(() => "")
-    const localIp = localIpFromHomeyLocalUrl(localUrl)
+    const homeyLocalIp = localIpFromHomeyLocalUrl(localUrl)
+    const interfaceIp = localIpFromNetworkInterfaces()
+    const localIp = isLoopbackIp(homeyLocalIp)
+      ? interfaceIp || ""
+      : homeyLocalIp || interfaceIp
 
     return {
       enabled,

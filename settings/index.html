@@ -20,6 +20,15 @@
         width: 100%;
       }
 
+      textarea {
+        box-sizing: border-box;
+        font-family: monospace;
+        margin-top: 6px;
+        min-height: 78px;
+        resize: vertical;
+        width: 100%;
+      }
+
       button {
         margin-top: 16px;
       }
@@ -48,8 +57,12 @@
     <label data-i18n="settings.token"></label>
     <code id="token"></code>
 
+    <label for="connection" data-i18n="settings.connection"></label>
+    <textarea id="connection" readonly></textarea>
+
     <button id="save" data-i18n="settings.save"></button>
     <button id="rotate" data-i18n="settings.rotate"></button>
+    <button id="copy" data-i18n="settings.copy"></button>
 
     <script type="text/javascript">
       function onHomeyReady(Homey) {
@@ -58,6 +71,7 @@
         const url = document.getElementById("url")
         const localIp = document.getElementById("localIp")
         const token = document.getElementById("token")
+        const connection = document.getElementById("connection")
 
         function refresh() {
           Homey.api("GET", "/", null, (error, info) => {
@@ -71,6 +85,7 @@
             url.textContent = info.url
             localIp.textContent = info.localIp || "-"
             token.textContent = info.token
+            connection.value = `Source URL: ${info.url}\nBearer token: ${info.token}`
           })
         }
 
@@ -90,6 +105,20 @@
 
             refresh()
           })
+        })
+
+        document.getElementById("copy").addEventListener("click", () => {
+          connection.select()
+
+          if (navigator.clipboard) {
+            navigator.clipboard.writeText(connection.value).then(() => {
+              Homey.alert(Homey.__("settings.copied"))
+            })
+            return
+          }
+
+          document.execCommand("copy")
+          Homey.alert(Homey.__("settings.copied"))
         })
 
         refresh()
