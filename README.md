@@ -14,7 +14,7 @@ Install the same app on both Homeys:
 - Mirrors device name, class, availability, energy metadata, capabilities, capability options, and current capability values.
 - Forwards target-side capability writes to the source Homey through the Homey Web API.
 - Streams source-side capability events to the target over a target-initiated HTTP Server-Sent Events request.
-- Emits a generic Homey Flow trigger on the target for every source event the bridge receives.
+- Emits a generic Homey Flow trigger on the target for every source event the bridge receives, with an event argument so remote flows can match generated source events such as `received.1` and `received.0`.
 - Adds a source-side Flow action card so any source Flow can explicitly publish device-scoped mirror events to targets.
 - Creates or updates one source-side Advanced Flow that forwards all enumerable trigger states for the mirrored source device.
 - Uses a shared bearer token for the local HTTP bridge.

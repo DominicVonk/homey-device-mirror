@@ -1,6 +1,6 @@
 {
   "id": "com.dominicvonk.homeydevicemirror",
-  "version": "0.1.2",
+  "version": "0.1.3",
   "sdk": 3,
   "compatibility": ">=5.0.0",
   "name": {
@@ -39,11 +39,24 @@
         "title": {
           "en": "A mirrored source event was received"
         },
+        "titleFormatted": {
+          "en": "A mirrored source event [[event]] was received"
+        },
         "args": [
           {
             "name": "device",
             "type": "device",
             "filter": "driver_id=mirror_device"
+          },
+          {
+            "name": "event",
+            "type": "text",
+            "title": {
+              "en": "Event"
+            },
+            "placeholder": {
+              "en": "received.1"
+            }
           }
         ],
         "tokens": [
