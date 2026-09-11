@@ -90,10 +90,25 @@
         }
 
         document.getElementById("save").addEventListener("click", () => {
-          Homey.set("serverEnabled", enabled.checked)
-          Homey.set("serverPort", Number(port.value) || 48555)
-          Homey.alert(Homey.__("settings.saved"))
-          refresh()
+          const selectedPort = Number(port.value)
+          if (!Number.isInteger(selectedPort) || selectedPort < 1024 || selectedPort > 65535) {
+            Homey.alert("Enter a port between 1024 and 65535.")
+            return
+          }
+          Homey.set("serverEnabled", enabled.checked, (error) => {
+            if (error) {
+              Homey.alert(error)
+              return
+            }
+            Homey.set("serverPort", selectedPort, (error) => {
+              if (error) {
+                Homey.alert(error)
+                return
+              }
+              Homey.alert(Homey.__("settings.saved"))
+              refresh()
+            })
+          })
         })
 
         document.getElementById("rotate").addEventListener("click", () => {

@@ -1,6 +1,7 @@
 "use strict"
 
 const Homey = require("homey")
+const { isDeepStrictEqual } = require("node:util")
 const { openEventStream, requestJson } = require("../../lib/http-json")
 
 const pollIntervalMs = 30000
@@ -12,19 +13,62 @@ module.exports = class MirrorDevice extends Homey.Device {
     this.store = this.getStore()
     this.reconnectDelay = reconnectMinMs
     this.capabilityListeners = new Set()
-    this.sourceUpdateInProgress = false
-
-    await this.syncFromSource()
-    await this.ensureSourceAdvancedFlow()
-    this.registerCapabilityWriteListeners()
-    this.startPolling()
-    this.startEventStream()
+    this.updateQueue = Promise.resolve()
+    await this.startConnection()
     this.log(`Mirroring source device ${this.store.sourceDeviceId}`)
   }
 
-  async onDeleted() {
+  async startConnection() {
+    this.stopped = false
+    this.sourceFlowReady = false
+    this.registerCapabilityWriteListeners()
+    try {
+      await this.syncFromSource()
+    } catch (error) {
+      this.error(error)
+      await this.setUnavailable(error.message)
+    }
+    if (this.stopped) return
+    this.startPolling()
+    this.startEventStream()
+  }
+
+  async updateConnection({ baseUrl, token }) {
+    this.stopConnection()
+    await this.updateQueue
+    try {
+      await this.setStoreValue("sourceBaseUrl", baseUrl)
+      await this.setStoreValue("sourceToken", token)
+      await this.setSettings({ sourceBaseUrl: baseUrl })
+    } finally {
+      this.store = this.getStore()
+      this.reconnectDelay = reconnectMinMs
+      await this.startConnection()
+    }
+  }
+
+  stopConnection() {
+    this.stopped = true
     this.stopPolling()
     this.stopEventStream()
+  }
+
+  async onDeleted() {
+    this.stopConnection()
+    await this.updateQueue
+  }
+
+  async onUninit() {
+    this.stopConnection()
+    await this.updateQueue
+  }
+
+  enqueueSourceUpdate(update) {
+    const result = this.updateQueue.then(() => {
+      if (!this.stopped) return update()
+    })
+    this.updateQueue = result.catch(() => {}) // Keep later updates running; caller handles errors.
+    return result
   }
 
   async onRenamed(name) {
@@ -34,10 +78,16 @@ module.exports = class MirrorDevice extends Homey.Device {
   startPolling() {
     this.stopPolling()
     this.pollInterval = this.homey.setInterval(() => {
-      this.syncFromSource().catch((error) => {
-        this.error(error)
-        this.setUnavailable(error.message).catch(this.error)
-      })
+      if (this.pollInProgress) return
+      this.pollInProgress = true
+      this.syncFromSource()
+        .catch((error) => {
+          this.error(error)
+          if (!this.stopped) this.setUnavailable(error.message).catch(this.error)
+        })
+        .finally(() => {
+          this.pollInProgress = false
+        })
     }, pollIntervalMs)
   }
 
@@ -50,6 +100,7 @@ module.exports = class MirrorDevice extends Homey.Device {
 
   startEventStream() {
     this.stopEventStream()
+    if (this.stopped) return
     const path = `/events?deviceId=${encodeURIComponent(this.store.sourceDeviceId)}`
 
     this.closeEventStream = openEventStream({
@@ -74,6 +125,7 @@ module.exports = class MirrorDevice extends Homey.Device {
   }
 
   handleEventStreamError(error) {
+    if (this.stopped) return
     this.error(error)
 
     if (this.reconnectTimer) {
@@ -88,7 +140,11 @@ module.exports = class MirrorDevice extends Homey.Device {
     }, delay)
   }
 
-  async handleSourceEvent(event, payload) {
+  handleSourceEvent(event, payload) {
+    return this.enqueueSourceUpdate(() => this.applySourceEvent(event, payload))
+  }
+
+  async applySourceEvent(event, payload) {
     this.reconnectDelay = reconnectMinMs
 
     if (event === "flow.event" && payload?.event) {
@@ -113,14 +169,19 @@ module.exports = class MirrorDevice extends Homey.Device {
     }
   }
 
-  async syncFromSource() {
-    const result = await requestJson({
-      baseUrl: this.store.sourceBaseUrl,
-      path: `/devices/${encodeURIComponent(this.store.sourceDeviceId)}`,
-      token: this.store.sourceToken,
+  syncFromSource() {
+    return this.enqueueSourceUpdate(async () => {
+      const result = await requestJson({
+        baseUrl: this.store.sourceBaseUrl,
+        path: `/devices/${encodeURIComponent(this.store.sourceDeviceId)}`,
+        token: this.store.sourceToken,
+      })
+      if (this.stopped) return
+      await this.applySourceDevice(result.device)
+      if (!this.sourceFlowReady) {
+        this.sourceFlowReady = await this.ensureSourceAdvancedFlow()
+      }
     })
-
-    await this.applySourceDevice(result.device)
   }
 
   async ensureSourceAdvancedFlow() {
@@ -147,17 +208,29 @@ module.exports = class MirrorDevice extends Homey.Device {
           `Skipped ${result.skipped.length} trigger(s) without enumerable states.`
         )
       }
+      return true
     } catch (error) {
       this.error("Could not create source Advanced Flow", error)
+      return false
     }
   }
 
   async applySourceDevice(device) {
-    if (!device) {
-      throw new Error("Source response did not include a device.")
+    if (!device || !Array.isArray(device.capabilities)) {
+      throw new Error("Source response did not include a valid device capability list.")
     }
 
     await this.ensureCapabilities(device)
+    if (device.name && device.name !== this.getName()) {
+      await this.homey.app.updateMirrorName(this.getData().id, device.name)
+    }
+    if (device.class && device.class !== this.getClass()) {
+      await this.setClass(device.class)
+    }
+    const energy = device.energy || {}
+    if (!isDeepStrictEqual(this.getEnergy() || {}, energy)) {
+      await this.setEnergy(energy)
+    }
 
     for (const [capabilityId, value] of Object.entries(device.state || {})) {
       await this.applyCapabilityValue(capabilityId, value)
@@ -173,10 +246,22 @@ module.exports = class MirrorDevice extends Homey.Device {
   async ensureCapabilities(device) {
     const existing = new Set(this.getCapabilities())
 
-    for (const capabilityId of device.capabilities || []) {
+    const sourceCapabilities = new Set(device.capabilities || [])
+    for (const capabilityId of existing) {
+      if (!sourceCapabilities.has(capabilityId)) {
+        await this.removeCapability(capabilityId)
+        this.capabilityListeners.delete(capabilityId)
+      }
+    }
+
+    for (const capabilityId of sourceCapabilities) {
       if (!existing.has(capabilityId)) {
         await this.addCapability(capabilityId)
         existing.add(capabilityId)
+      }
+      const options = device.capabilitiesOptions?.[capabilityId] || {}
+      if (!isDeepStrictEqual(this.getCapabilityOptions(capabilityId) || {}, options)) {
+        await this.setCapabilityOptions(capabilityId, options)
       }
     }
 
@@ -188,12 +273,7 @@ module.exports = class MirrorDevice extends Homey.Device {
       return
     }
 
-    try {
-      this.sourceUpdateInProgress = true
-      await this.setCapabilityValue(capabilityId, value)
-    } finally {
-      this.sourceUpdateInProgress = false
-    }
+    await this.setCapabilityValue(capabilityId, value)
   }
 
   registerCapabilityWriteListeners() {
@@ -203,10 +283,6 @@ module.exports = class MirrorDevice extends Homey.Device {
       }
 
       this.registerCapabilityListener(capabilityId, async (value, opts) => {
-        if (this.sourceUpdateInProgress) {
-          return
-        }
-
         await requestJson({
           baseUrl: this.store.sourceBaseUrl,
           method: "PUT",

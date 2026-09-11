@@ -5,7 +5,8 @@
   "main": "app.js",
   "scripts": {
     "validate": "homey app validate",
-    "lint": "node --check app.js && node --check api.js && node --check lib/http-json.js && node --check drivers/mirror_device/driver.js && node --check drivers/mirror_device/device.js"
+    "lint": "node --check app.js && node --check api.js && node --check lib/http-json.js && node --check drivers/mirror_device/driver.js && node --check drivers/mirror_device/device.js",
+    "test": "node --test test/*.test.js"
   },
   "dependencies": {
     "homey-api": "^3.19.0"

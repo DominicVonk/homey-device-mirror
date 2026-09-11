@@ -24,10 +24,19 @@ Unknown custom capabilities from third-party apps are passed through with their 
 
 The source Homey streams Homey Web API device capability events and periodic full-device snapshots. The generated Advanced Flow forwards trigger cards exposed by the source device. Trigger cards with open-ended required arguments, such as free-text inputs without predefined values, are skipped because Homey needs a concrete value.
 
+## Connection recovery
+
+Mirrors retry when the source is offline, including during app startup. After changing the source URL or rotating its token, use **Repair** on each target mirror and enter the new connection details. Repair keeps the original source device and target device identity, preserving target Flows.
+
+Source snapshots update the mirror’s name, class, energy metadata, capability options and capability list. Local name changes are replaced by the source name on the next sync. Removing a source capability also removes it from the mirror and can break target Flows using that capability.
+
+Generated source Flows are matched by their source device ID. Existing generated duplicates from earlier versions are disabled when the forwarding Flow is refreshed; they are retained for inspection.
+
 ## Development
 
 ```sh
 npm install
+npm test
 npm run lint
 npm run validate
 ```

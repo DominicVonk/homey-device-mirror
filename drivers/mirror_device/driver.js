@@ -13,6 +13,7 @@ function cleanConnection(data = {}) {
 module.exports = class MirrorDeviceDriver extends Homey.Driver {
   async onInit() {
     this.eventTrigger = this.homey.flow.getDeviceTriggerCard("mirror_device_event")
+    this.eventTrigger.registerRunListener((args, state) => args.event === state.event)
     this.log("Mirror device driver initialized")
   }
 
@@ -51,22 +52,22 @@ module.exports = class MirrorDeviceDriver extends Homey.Driver {
   }
 
   async onRepair(session, device) {
-    await this.onPair(session)
-    session.setHandler("list_devices", async () => {
-      const store = device.getStore()
-      const connection = {
-        baseUrl: store.sourceBaseUrl,
-        token: store.sourceToken,
+    session.setHandler("set_connection", async (data) => {
+      const connection = cleanConnection(data)
+      if (!connection.baseUrl || !connection.token) {
+        throw new Error("Enter the source Homey URL and token.")
       }
+      // Repair the existing source identity; never create a replacement device.
+      const sourceDeviceId = device.getStore().sourceDeviceId
       const result = await requestJson({
-        baseUrl: connection.baseUrl,
-        path: "/devices",
-        token: connection.token,
+        ...connection,
+        path: `/devices/${encodeURIComponent(sourceDeviceId)}`,
       })
-
-      return result.devices.map((sourceDevice) =>
-        this.mapSourceDevice(connection, sourceDevice)
-      )
+      if (result.device?.id !== sourceDeviceId) {
+        throw new Error("The source did not return the original device.")
+      }
+      await device.updateConnection(connection)
+      return true
     })
   }
 

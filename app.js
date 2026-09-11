@@ -369,15 +369,16 @@ module.exports = class HomeyDeviceMirrorApp extends Homey.App {
     await this.ensureServerSettings()
     this.registerFlowCards()
 
-    this.homey.settings.on("set", async (key) => {
+    this.settingsListener = (key) => {
       if (
         key === serverPortSetting ||
         key === serverEnabledSetting ||
         key === serverTokenSetting
       ) {
-        await this.restartServer().catch(this.error)
+        this.restartServer().catch(this.error)
       }
-    })
+    }
+    this.homey.settings.on("set", this.settingsListener)
 
     await this.restartServer()
     this.log("Homey Device Mirror initialized")
@@ -412,6 +413,9 @@ module.exports = class HomeyDeviceMirrorApp extends Homey.App {
   }
 
   async onUninit() {
+    this.shuttingDown = true
+    this.homey.settings.removeListener("set", this.settingsListener)
+    await this.serverRestart
     await this.stopServer()
     this.stopSourcePolling()
   }
@@ -459,8 +463,17 @@ module.exports = class HomeyDeviceMirrorApp extends Homey.App {
     return this.getServerInfo()
   }
 
-  async restartServer() {
+  restartServer() {
+    const restart = (this.serverRestart || Promise.resolve()).then(() =>
+      this.startServer()
+    )
+    this.serverRestart = restart.catch(() => {}) // A failed restart must not block later settings changes.
+    return restart
+  }
+
+  async startServer() {
     await this.stopServer()
+    if (this.shuttingDown) return
 
     if (this.homey.settings.get(serverEnabledSetting) === false) {
       this.log("Mirror HTTP server disabled")
@@ -468,12 +481,18 @@ module.exports = class HomeyDeviceMirrorApp extends Homey.App {
     }
 
     const port = Number(this.homey.settings.get(serverPortSetting)) || defaultPort
-    this.server = http.createServer(this.handleRequest.bind(this))
+    const server = http.createServer(this.handleRequest.bind(this))
+    this.server = server
+    server.sockets = new Set()
+    server.on("connection", (socket) => {
+      server.sockets.add(socket)
+      socket.on("close", () => server.sockets.delete(socket))
+    })
 
     await new Promise((resolve, reject) => {
-      this.server.once("error", reject)
-      this.server.listen(port, "0.0.0.0", () => {
-        this.server.off("error", reject)
+      server.once("error", reject)
+      server.listen(port, "0.0.0.0", () => {
+        server.off("error", reject)
         resolve()
       })
     })
@@ -482,6 +501,11 @@ module.exports = class HomeyDeviceMirrorApp extends Homey.App {
   }
 
   async stopServer() {
+    for (const client of [...this.eventClients]) {
+      client.close()
+      client.response.destroy()
+    }
+    this.stopSourcePolling()
     if (!this.server) {
       return
     }
@@ -490,7 +514,11 @@ module.exports = class HomeyDeviceMirrorApp extends Homey.App {
     this.server = null
 
     await new Promise((resolve, reject) => {
-      server.close((error) => (error ? reject(error) : resolve()))
+      server.close((error) => {
+        if (error && error.code !== "ERR_SERVER_NOT_RUNNING") reject(error)
+        else resolve()
+      })
+      for (const socket of server.sockets || []) socket.destroy()
     })
   }
 
@@ -560,6 +588,17 @@ module.exports = class HomeyDeviceMirrorApp extends Homey.App {
     }
   }
 
+  async updateMirrorName(dataId, name) {
+    const devices = await this.homeyApi.devices.getDevices()
+    const mirror = Object.values(devices).find((device) =>
+      device.data?.id === dataId &&
+      (device.driverId === `${appOwnerUri}:mirror_device` ||
+        (device.ownerUri === appOwnerUri && device.driverId === "mirror_device"))
+    )
+    if (!mirror) throw new Error("Could not find the local mirror to update its name.")
+    await this.homeyApi.devices.updateDevice({ id: mirror.id, device: { name } })
+  }
+
   async listSourceDevices() {
     const devices = await this.homeyApi.devices.getDevices()
 
@@ -617,9 +656,12 @@ module.exports = class HomeyDeviceMirrorApp extends Homey.App {
       response,
       lastSnapshot: null,
       lastState: {},
+      closed: false,
     }
 
     const close = () => {
+      if (client.closed) return
+      client.closed = true
       for (const instance of client.capabilityInstances) {
         instance.destroy()
       }
@@ -629,7 +671,8 @@ module.exports = class HomeyDeviceMirrorApp extends Homey.App {
       this.stopSourcePollingIfIdle()
     }
 
-    request.on("close", close)
+    client.close = close
+    response.on("close", close)
     response.on("error", close)
     this.eventClients.add(client)
     this.startSourcePolling()
@@ -648,7 +691,7 @@ module.exports = class HomeyDeviceMirrorApp extends Homey.App {
   }
 
   sendSourceEvent(client, event, data) {
-    if (client.response.writableEnded) {
+    if (client.closed || client.response.writableEnded || client.response.destroyed) {
       return
     }
 
@@ -676,7 +719,15 @@ module.exports = class HomeyDeviceMirrorApp extends Homey.App {
     )
   }
 
-  async createOrUpdateForwardAllAdvancedFlow(deviceId) {
+  createOrUpdateForwardAllAdvancedFlow(deviceId) {
+    const result = (this.flowUpdate || Promise.resolve()).then(() =>
+      this.updateForwardAllAdvancedFlow(deviceId)
+    )
+    this.flowUpdate = result.catch(() => {}) // Return failures to the caller without blocking the next update.
+    return result
+  }
+
+  async updateForwardAllAdvancedFlow(deviceId) {
     const devices = await this.homeyApi.devices.getDevices()
     const device = devices[deviceId]
 
@@ -735,6 +786,30 @@ module.exports = class HomeyDeviceMirrorApp extends Homey.App {
       }
     }
 
+    const existingFlows = Object.values(await this.homeyApi.flow.getAdvancedFlows())
+      .filter((flow) => {
+        const flowCards = Object.values(flow.cards || {})
+        return flow.name.startsWith("[Mirror] Forward all:") &&
+          flowCards.some((card) => card.type === "action") &&
+          flowCards.some((card) => card.type === "trigger") &&
+          flowCards.every((card) =>
+            (card.type === "trigger" && card.ownerUri === `homey:device:${deviceId}`) ||
+            (card.type === "action" && card.id === publishActionByDeviceIdCardId &&
+              card.args?.source_device_id === deviceId)
+          )
+      })
+      .sort((left, right) => left.id.localeCompare(right.id))
+    const existing = existingFlows[0]
+    // Older versions could create duplicates after renames. Keep one active flow.
+    for (const duplicate of existingFlows.slice(Object.keys(cards).length ? 1 : 0)) {
+      if (duplicate.enabled !== false) {
+        await this.homeyApi.flow.updateAdvancedFlow({
+          id: duplicate.id,
+          advancedflow: { enabled: false },
+        })
+      }
+    }
+
     if (Object.keys(cards).length === 0) {
       return {
         created: false,
@@ -752,9 +827,6 @@ module.exports = class HomeyDeviceMirrorApp extends Homey.App {
       triggerable: false,
       cards,
     }
-    const existing = Object.values(await this.homeyApi.flow.getAdvancedFlows()).find(
-      (flow) => flow.name === name
-    )
 
     if (existing) {
       const updated = await this.homeyApi.flow.updateAdvancedFlow({
@@ -790,8 +862,11 @@ module.exports = class HomeyDeviceMirrorApp extends Homey.App {
       throw new Error(`Source device not found: ${client.deviceId}`)
     }
 
+    if (client.closed) return
     for (const capabilityId of capabilityIdsFor(device)) {
       const instance = device.makeCapabilityInstance(capabilityId, (value) => {
+        if (client.closed || client.lastState[capabilityId] === value) return
+        client.lastState[capabilityId] = value
         this.sendSourceEvent(client, "capability.changed", {
           capabilityId,
           value,
@@ -807,7 +882,13 @@ module.exports = class HomeyDeviceMirrorApp extends Homey.App {
     }
 
     this.sourcePollInterval = this.homey.setInterval(() => {
-      this.pollSourceEvents().catch(this.error)
+      if (this.sourcePollInProgress) return
+      this.sourcePollInProgress = true
+      this.pollSourceEvents()
+        .catch(this.error)
+        .finally(() => {
+          this.sourcePollInProgress = false
+        })
     }, sourcePollMs)
   }
 
@@ -838,12 +919,15 @@ module.exports = class HomeyDeviceMirrorApp extends Homey.App {
     )
 
     for (const client of [...this.eventClients]) {
+      if (client.closed) continue
+      // Keep idle streams alive and let targets detect a dead connection.
+      client.response.write(": heartbeat\n\n")
       const device = devices.get(client.deviceId)
 
       if (!device) {
         this.sendSourceEvent(client, "device.deleted", { deviceId: client.deviceId })
+        client.close()
         client.response.end()
-        this.eventClients.delete(client)
         continue
       }
 
